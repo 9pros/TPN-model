@@ -41,7 +41,7 @@ def benchmark_attention():
             output_std = TPNAttention.forward_standard(q, k, v)
         std_time = (time.time() - start) / 100
         
-        print(f"  TPN:      {tnp_time*1000:.3f} ms")
+        print(f"  TPN:      {tpn_time*1000:.3f} ms")
         print(f"  Standard: {std_time*1000:.3f} ms")
         print(f"  Speedup:  {std_time/tpn_time:.2f}x")
         print()
