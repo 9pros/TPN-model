@@ -11,6 +11,8 @@ from .gguf_loader import GGUFLoader
 from .safetensors_loader import SafetensorsLoader
 from .binetic import BineticFormat, BineticGraph, BineticVersion
 from .binetic_converter import BineticConverter
+from .tool_calling import Tool, ToolCall, ToolRegistry, ToolExecutor
+from .openai_api import OpenAIChatCompletions, ChatMessage, ChatCompletionRequest
 
 __all__ = [
     "PhaseWeight",
@@ -32,4 +34,11 @@ __all__ = [
     "BineticGraph",
     "BineticVersion",
     "BineticConverter",
+    "Tool",
+    "ToolCall",
+    "ToolRegistry",
+    "ToolExecutor",
+    "OpenAIChatCompletions",
+    "ChatMessage",
+    "ChatCompletionRequest",
 ]
