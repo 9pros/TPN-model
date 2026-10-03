@@ -7,6 +7,7 @@ from .evolution import EvolvablePhaseNetwork
 from .inference import TPNModel, TPNConfig
 from .trajectory import TrajectoryPredictor, Trajectory
 from .intent import IntentPredictor, IntentState
+from .gguf_loader import GGUFLoader
 
 __all__ = [
     "PhaseWeight",
@@ -22,4 +23,5 @@ __all__ = [
     "Trajectory",
     "IntentPredictor",
     "IntentState",
+    "GGUFLoader",
 ]
