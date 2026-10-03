@@ -10,6 +10,7 @@ from .intent import IntentPredictor, IntentState
 from .gguf_loader import GGUFLoader
 from .safetensors_loader import SafetensorsLoader
 from .binetic import BineticFormat, BineticGraph, BineticVersion
+from .binetic_converter import BineticConverter
 
 __all__ = [
     "PhaseWeight",
@@ -30,4 +31,5 @@ __all__ = [
     "BineticFormat",
     "BineticGraph",
     "BineticVersion",
+    "BineticConverter",
 ]
