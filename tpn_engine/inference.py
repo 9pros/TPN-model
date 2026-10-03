@@ -64,8 +64,21 @@ class TPNModel:
         return layers
     
     def _random_phase_matrix(self, rows: int, cols: int) -> List[List[PhaseWeight]]:
-        """Create a matrix of random phase-encoded weights."""
-        return [[PhaseWeight(random.uniform(0, 2 * math.pi)) for _ in range(cols)] for _ in range(rows)]
+        """Create a matrix of random phase-encoded weights with small values."""
+        # Use phases near π/2 (weight ≈ 0) with small variance
+        # This keeps initial outputs small and stable
+        return [[PhaseWeight(math.pi / 2 + random.gauss(0, 0.1)) for _ in range(cols)] for _ in range(rows)]
+    
+    def _normalize(self, vector: List[float]) -> List[float]:
+        """Normalize vector to prevent explosion."""
+        norm = math.sqrt(sum(x * x for x in vector))
+        if norm > 1e-6:
+            return [x / norm for x in vector]
+        return vector
+    
+    def _clamp(self, vector: List[float], max_val: float = 10.0) -> List[float]:
+        """Clamp vector values to prevent explosion."""
+        return [max(-max_val, min(max_val, x)) for x in vector]
     
     def _matvec(self, matrix: List[List[PhaseWeight]], vector: List[float]) -> List[float]:
         """Matrix-vector multiplication with phase-encoded weights."""
@@ -119,22 +132,23 @@ class TPNModel:
         Returns:
             Output vector of size hidden_size.
         """
-        hidden = input_data[:self.config.hidden_size]
+        hidden = self._normalize(input_data[:self.config.hidden_size])
         
         for layer in self.layers:
             # Self-attention
-            q = self._matvec(layer["q_proj"], hidden)
-            k = self._matvec(layer["k_proj"], hidden)
-            v = self._matvec(layer["v_proj"], hidden)
+            q = self._normalize(self._matvec(layer["q_proj"], hidden))
+            k = self._normalize(self._matvec(layer["k_proj"], hidden))
+            v = self._normalize(self._matvec(layer["v_proj"], hidden))
             
             # Attention output
             attn_out = self._attention(q, k, v)
             
-            # Output projection
-            hidden = self._matvec(layer["o_proj"], attn_out)
+            # Output projection + residual
+            hidden = self._normalize([h + a for h, a in zip(hidden, self._matvec(layer["o_proj"], attn_out))])
             
-            # FFN
-            hidden = self._ffn(hidden, layer)
+            # FFN + residual
+            ffn_out = self._ffn(hidden, layer)
+            hidden = self._normalize([h + f for h, f in zip(hidden, ffn_out)])
         
         return hidden
     

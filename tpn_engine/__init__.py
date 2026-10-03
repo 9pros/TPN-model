@@ -5,6 +5,8 @@ from .attention import TPNAttention, tpn_softmax, standard_softmax
 from .hadamard import HadamardTransform
 from .evolution import EvolvablePhaseNetwork
 from .inference import TPNModel, TPNConfig
+from .trajectory import TrajectoryPredictor, Trajectory
+from .intent import IntentPredictor, IntentState
 
 __all__ = [
     "PhaseWeight",
@@ -16,4 +18,8 @@ __all__ = [
     "EvolvablePhaseNetwork",
     "TPNModel",
     "TPNConfig",
+    "TrajectoryPredictor",
+    "Trajectory",
+    "IntentPredictor",
+    "IntentState",
 ]
