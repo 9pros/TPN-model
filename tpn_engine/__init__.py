@@ -13,6 +13,7 @@ from .binetic import BineticFormat, BineticGraph, BineticVersion
 from .binetic_converter import BineticConverter
 from .tool_calling import Tool, ToolCall, ToolRegistry, ToolExecutor
 from .openai_api import OpenAIChatCompletions, ChatMessage, ChatCompletionRequest
+from .bitslicing import BitslicedGate, BitslicedOperation, ParallelExecutor
 
 __all__ = [
     "PhaseWeight",
@@ -41,4 +42,7 @@ __all__ = [
     "OpenAIChatCompletions",
     "ChatMessage",
     "ChatCompletionRequest",
+    "BitslicedGate",
+    "BitslicedOperation",
+    "ParallelExecutor",
 ]
