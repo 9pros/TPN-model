@@ -8,6 +8,7 @@ from .inference import TPNModel, TPNConfig
 from .trajectory import TrajectoryPredictor, Trajectory
 from .intent import IntentPredictor, IntentState
 from .gguf_loader import GGUFLoader
+from .safetensors_loader import SafetensorsLoader
 
 __all__ = [
     "PhaseWeight",
@@ -24,4 +25,5 @@ __all__ = [
     "IntentPredictor",
     "IntentState",
     "GGUFLoader",
+    "SafetensorsLoader",
 ]
