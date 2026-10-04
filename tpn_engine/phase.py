@@ -178,13 +178,26 @@ class PhaseMatrix:
         copy:   if False, the array is used as-is (no defensive copy).
     """
 
-    def __init__(self, phases, copy: bool = True):
+    def __init__(self, phases, copy: bool = True, scale: float = 1.0):
+        """
+        Args:
+            phases: phase angles (radians), any shape.
+            copy:   if False, the array is used as-is (no defensive copy).
+            scale:  magnitude multiplier applied on top of cos(phase).
+
+        Because cos() only spans [-1, 1], a real weight matrix whose
+        values exceed that cannot be represented by phase alone. Splitting
+        the weight into ``scale * cos(phase)`` keeps the full dynamic
+        range: the phase carries the *shape* of the weight and ``scale``
+        carries its magnitude. See ``from_weights_auto``.
+        """
         _require_numpy()
         arr = np.asarray(phases, dtype=np.float64)
         if copy:
             arr = arr.copy()
         # Normalize into [0, 2π) exactly like PhaseWeight.__init__.
         self.phases = np.mod(arr, 2.0 * math.pi)
+        self.scale = float(scale)
 
     # -- constructors -------------------------------------------------- #
 
@@ -221,6 +234,43 @@ class PhaseMatrix:
         phases = [[w.phase for w in row] for row in matrix]
         return cls(phases)
 
+    @classmethod
+    def from_weights_auto(cls, weights):
+        """
+        Encode float weights losslessly, preserving values outside [-1, 1].
+
+        ``cos(phase)`` can only ever produce a value in [-1, 1]. Real
+        checkpoints routinely contain weights beyond that range (the
+        Ling/Laguna attention projections reach ±1.22), so naively
+        clamping them -- as ``PhaseEncoding.encode_vector`` does -- would
+        silently flatten the largest-magnitude weights.
+
+        Instead this splits the weight into ``scale * cos(phase)``:
+
+            scale = max(|w|)          (0 if the matrix is all zeros)
+            phase = acos(clamp(w / scale, -1, 1))
+
+        The reconstruction ``scale * cos(phase)`` then reproduces the
+        original weight matrix to float32 precision, including outliers.
+        The cost is one extra scalar per matrix, not per weight.
+
+        Args:
+            weights: 2-D array of floats, any magnitude.
+
+        Returns:
+            A PhaseMatrix whose ``values()`` reconstruct the input.
+        """
+        _require_numpy()
+        w = np.asarray(weights, dtype=np.float64)
+
+        peak = float(np.abs(w).max()) if w.size else 0.0
+        if peak == 0.0:
+            # All-zero matrix: any phase reconstructs zero.
+            return cls(np.zeros_like(w), scale=0.0)
+
+        normalized = np.clip(w / peak, -1.0, 1.0)
+        return cls(np.arccos(normalized), scale=peak)
+
     # -- properties ---------------------------------------------------- #
 
     @property
@@ -236,11 +286,16 @@ class PhaseMatrix:
         return int(self.phases.shape[1]) if self.phases.ndim > 1 else 1
 
     def values(self):
-        """Weight values as a numpy array: cos(phase)."""
-        return np.cos(self.phases)
+        """Weight values as a numpy array: scale * cos(phase)."""
+        return self.scale * np.cos(self.phases)
 
     def fitness(self):
-        """Fitness values as a numpy array: cos²(phase - π/4)."""
+        """Fitness values as a numpy array: cos²(phase - π/4).
+
+        Fitness is a property of the phase alone and is deliberately not
+        scaled -- it measures how well-aligned a weight is, not its
+        magnitude.
+        """
         return np.cos(self.phases - math.pi / 4.0) ** 2
 
     # -- computation --------------------------------------------------- #
@@ -249,13 +304,14 @@ class PhaseMatrix:
         """
         Matrix-vector product with phase-encoded weights.
 
-        ``out[i] = sum_j cos(phase[i,j]) * v[j]``
+        ``out[i] = sum_j scale * cos(phase[i,j]) * v[j]``
 
-        Implemented as a single BLAS call over the cached cos table.
+        A single BLAS call over the cached cos table, with the per-matrix
+        scale folded in as one scalar multiply.
         """
         _require_numpy()
         v = np.asarray(vector, dtype=np.float64)
-        return np.cos(self.phases) @ v
+        return self.scale * (np.cos(self.phases) @ v)
 
     def matmul(self, matrix):
         """
@@ -264,7 +320,7 @@ class PhaseMatrix:
         """
         _require_numpy()
         m = np.asarray(matrix, dtype=np.float64)
-        return np.cos(self.phases) @ m
+        return self.scale * (np.cos(self.phases) @ m)
 
     def to_phase_objects(self) -> List[List[PhaseWeight]]:
         """Convert back to the object-based representation."""

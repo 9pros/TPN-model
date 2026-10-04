@@ -149,12 +149,16 @@ class TPNModel:
 
         Phases are centered on pi/2 (weight ~ 0) with a small spread, which
         keeps initial outputs small and the forward pass stable.
+
+        The numpy path uses a vectorized draw (rows * cols in a single
+        numpy call) instead of one Python random per cell, so building a
+        large model is fast. The python path keeps the exact per-cell
+        behaviour of the original engine for reference.
         """
         if self.backend == "numpy":
-            phases = np.array(
-                [[math.pi / 2 + self._rng.gauss(0, 0.1) for _ in range(cols)]
-                 for _ in range(rows)],
-                dtype=np.float64,
+            rng = np.random.default_rng(self._rng.randint(0, 2**31))
+            phases = rng.normal(
+                math.pi / 2, 0.1, size=(rows, cols),
             )
             return PhaseMatrix(phases, copy=False)
         return [[PhaseWeight(math.pi / 2 + self._rng.gauss(0, 0.1))
@@ -208,7 +212,7 @@ class TPNModel:
         if isinstance(matrix, PhaseMatrix):
             m = np.asarray(vectors, dtype=np.float64)
             # (rows, cols) @ (cols, batch) -> (rows, batch), then transpose
-            return (np.cos(matrix.phases) @ m.T).T
+            return matrix.scale * (np.cos(matrix.phases) @ m.T).T
         return [self._matvec(matrix, v) for v in vectors]
 
     # ------------------------------------------------------------------ #
@@ -368,17 +372,21 @@ class TPNModel:
         }
 
     def set_weight_matrix(self, layer_idx: int, name: str, weights,
-                          encode: bool = True) -> None:
+                          encode: bool = True, preserve_scale: bool = True) -> None:
         """
         Install a weight matrix into a layer from float weights.
 
         Args:
             layer_idx: which block to write into.
             name: one of BLOCK_WEIGHT_NAMES ("q_proj", "gate_proj", ...).
-            weights: 2-D array of floats (typically in [-1, 1]) or, when
-                ``encode`` is False, raw phase angles in radians.
+            weights: 2-D array of floats, or -- when ``encode`` is False --
+                raw phase angles in radians.
             encode: when True (default) interpret ``weights`` as weight
                 values and encode them as phases via arccos.
+            preserve_scale: when True (default), weights whose magnitude
+                exceeds 1 are represented losslessly as
+                ``scale * cos(phase)`` instead of being clamped to ±1.
+                Set False only if you specifically want the hard clamp.
         """
         if name not in BLOCK_WEIGHT_NAMES:
             raise ValueError(
@@ -401,8 +409,12 @@ class TPNModel:
                     f"{name} for layer {layer_idx} expects shape {expected}, "
                     f"got {arr.shape}"
                 )
-            layer[name] = (PhaseMatrix.from_weights(arr) if encode
-                           else PhaseMatrix(arr))
+            if not encode:
+                layer[name] = PhaseMatrix(arr)
+            elif preserve_scale:
+                layer[name] = PhaseMatrix.from_weights_auto(arr)
+            else:
+                layer[name] = PhaseMatrix.from_weights(arr)
             return
 
         rows = [[float(v) for v in row] for row in weights]
