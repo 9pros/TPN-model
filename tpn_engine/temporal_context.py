@@ -33,6 +33,7 @@ This is the same capacity class as linear attention and modern SSMs. It
 is finite capacity, not perfect infinite recall.
 """
 
+import json
 import math
 import cmath
 import random as _random_module
@@ -156,6 +157,98 @@ class TemporalContext:
             return float("inf")
         return -1.0 / math.log(self.forgetting)
 
+    # ------------------------------------------------------------------ #
+    # Persistence: serialize the fixed-size state to disk.
+
+    def save(self, path: str) -> None:
+        """Save the context state to a JSON file (portable)."""
+        payload = {
+            "version": 1,
+            "dim": self.dim,
+            "num_frequencies": self.num_frequencies,
+            "window": self.window,
+            "forgetting": self.forgetting,
+            "length": self._length,
+            "last_time": self._last_time,
+            "mass": self._mass,
+            "state": [[[z.real, z.imag] for z in row] for row in self._state],
+            "omegas": self.omegas,
+        }
+        with open(path, "w") as f:
+            json.dump(payload, f)
+
+    @classmethod
+    def load(cls, path: str) -> "TemporalContext":
+        """Rebuild a context from a JSON file written by ``save``."""
+        with open(path) as f:
+            payload = json.load(f)
+        ctx = cls(
+            dim=payload["dim"],
+            num_frequencies=payload["num_frequencies"],
+            window=payload["window"],
+            forgetting=payload["forgetting"],
+            seed=0,
+        )
+        ctx._length = payload["length"]
+        ctx._last_time = payload["last_time"]
+        ctx._mass = payload["mass"]
+        ctx.omegas = payload["omegas"]
+        ctx._state = [[complex(z[0], z[1]) for z in row]
+                      for row in payload["state"]]
+        return ctx
+
+    # ------------------------------------------------------------------ #
+    # Persistence: binary npy (fast, numpy-only).
+
+    def save_binary(self, path: str) -> None:
+        """Save the context state as a zipped numpy archive (.npz)."""
+        try:
+            import numpy as np
+        except ImportError:
+            raise ImportError(
+                "numpy is required for binary save/load: pip install numpy"
+            )
+        meta = np.array([
+            self.dim, self.num_frequencies, self.window, self.forgetting,
+            self._length, self._last_time, self._mass,
+        ], dtype=np.float64)
+        np.savez(path, meta=meta, omegas=np.array(self.omegas, np.float64),
+                 state=np.array(self._state, dtype=np.complex128))
+
+    @classmethod
+    def load_binary(cls, path: str) -> "TemporalContext":
+        """Rebuild a context from a binary .npz file written by ``save_binary``."""
+        import numpy as np
+        arr = np.load(path, allow_pickle=True)
+        meta = arr["meta"]
+        ctx = cls(
+            dim=int(meta[0]),
+            num_frequencies=int(meta[1]),
+            window=float(meta[2]),
+            forgetting=float(meta[3]),
+            seed=0,
+        )
+        ctx._length = int(meta[4])
+        ctx._last_time = float(meta[5])
+        ctx._mass = float(meta[6])
+        ctx.omegas = arr["omegas"].tolist()
+        ctx._state = [[complex(z.real, z.imag) for z in row]
+                      for row in arr["state"]]
+        return ctx
+
+    # ------------------------------------------------------------------ #
+    # Metadata
+
+    def metadata(self) -> dict:
+        """Return the configuration that this state was created with."""
+        return {
+            "dim": self.dim,
+            "num_frequencies": self.num_frequencies,
+            "window": self.window,
+            "forgetting": self.forgetting,
+            "length": self._length,
+        }
+
 
 class TemporalMemory:
     """Temporal memory with a clean read/score API for retrieval quality."""
@@ -176,3 +269,17 @@ class TemporalMemory:
         qn = math.sqrt(sum(a * a for a in query_vector)) or 1.0
         rn = math.sqrt(sum(b * b for b in retrieved)) or 1.0
         return retrieved, num / (qn * rn)
+
+    # ------------------------------------------------------------------ #
+    # Persistence
+
+    def save(self, path: str) -> None:
+        """Save the underlying context to a JSON file."""
+        self.ctx.save(path)
+
+    @classmethod
+    def load(cls, path: str) -> "TemporalMemory":
+        """Rebuild a TemporalMemory from a JSON file written by ``save``."""
+        mem = cls()
+        mem.ctx = TemporalContext.load(path)
+        return mem

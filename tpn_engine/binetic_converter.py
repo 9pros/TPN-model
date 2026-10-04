@@ -7,7 +7,10 @@ to .binetic format with graph structure and phase-encoded weights.
 
 import math
 from typing import Dict, List, Optional, Tuple, Any
-from .binetic import BineticGraph, BineticFormat
+from .binetic import (
+    BineticGraph, BineticFormat, BineticIdentity, GenerationRecord,
+    BINETIC_IDENTITY,
+)
 from .phase import PhaseEncoding
 
 
@@ -59,7 +62,20 @@ class BineticConverter:
         for key, value in model_data.items():
             if key not in ["layers", "connections", "architecture", "model_name", "quantization", "tensors"]:
                 graph.metadata[key] = value
-        
+
+        # --- Binetic identity: ALWAYS asserted on Binetic-authored models ---
+        graph.set_binetic_identity(
+            owner="binetic.ai",
+            partners=["Max Yeremenko", "binetic-partner"],
+            derived_from=model_name,
+            tool="binetic_converter",
+            generation_info={
+                "mode": "conversion",
+                "architecture": architecture,
+            },
+        )
+        graph.metadata["binetic"] = graph.identity.as_dict()
+
         # Add nodes (layers)
         layers = model_data.get("layers", [])
         for layer in layers:

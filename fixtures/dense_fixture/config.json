@@ -1,0 +1,1 @@
+{"architectures": ["TPNModel"], "hidden_size": 16, "num_hidden_layers": 2, "intermediate_size": 32, "num_attention_heads": 2, "vocab_size": 32, "max_position_embeddings": 512}

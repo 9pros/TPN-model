@@ -105,6 +105,42 @@ reported in the `report` rather than silently dropped.
 are detected and rejected loudly with the reason. TPN is a dense SwiGLU
 architecture, so those checkpoints must first be converted to a dense form.
 
+## Binetic Identity & Provenance
+
+Every model authored, trained, or converted by Binetic carries a provable
+**Binetic identity**: ownership by binetic.ai with partners Max Yeremenko &
+binetic-partner. The identity lives in the `.binetic` file header so it can be
+verified offline, and on the loaded `TPNModel` so the model "knows" it is
+Binetic.
+
+```python
+from tpn_engine import TPNConfig, TPNModel
+
+# A fresh model is not Binetic-yet.
+model = TPNModel(TPNConfig())
+assert not model.is_binetic()
+
+# Training (evolution) registers generations into the model's provenance.
+model.evolve(target, generations=50)
+
+# Saving to .binetic injects Binetic ownership into the file header.
+model.save_to_binetic("model.binetic", version_id="v1")
+
+# After loading, the model proves it is Binetic.
+loaded = TPNModel(TPNConfig())
+loaded.load_from_binetic("model.binetic")
+assert loaded.is_binetic()
+print(loaded.binetic_identity.owner)        # binetic.ai
+print(loaded.binetic_identity.coauthors)    # Max Yeremenko, binetic-partner (binetic.ai)
+print(loaded.binetic_identity.generation_info["evolution_history"])
+# [{'type': 'evolve', 'generations': 50, 'final_fitness': 0.73, ...}]
+```
+
+The `.binetic` native format also stores the layer graph, version history with
+rollback support, and auto-save after inference — all carrying the same
+identity. Run `examples/binetic_identity_demo.py` for a full train/convert/save/load
+walkthrough.
+
 ## Project Structure
 
 ```
