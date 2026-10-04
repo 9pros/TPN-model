@@ -15,3 +15,4 @@ venv/
 *.gguf
 *.safetensors
 models/
+tests/fixtures/test.gguf
