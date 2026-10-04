@@ -12,6 +12,25 @@ import math
 import random
 from typing import List
 
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - numpy is optional
+    np = None
+
+
+def _require_numpy():
+    """Raise a helpful error if the fast path is used without numpy."""
+    if np is None:
+        raise ImportError(
+            "numpy is required for the vectorized fast path. "
+            "Install it with: pip install numpy"
+        )
+
+
+def numpy_available() -> bool:
+    """True when the vectorized fast path can be used."""
+    return np is not None
+
 
 class PhaseWeight:
     """
@@ -137,3 +156,127 @@ class PhaseEncoding:
             2D list of float values.
         """
         return [PhaseEncoding.decode_vector(row) for row in weights]
+
+
+class PhaseMatrix:
+    """
+    Vectorized phase-encoded weight matrix backed by numpy.
+
+    This is the fast path for TPN computation. Instead of a list of
+    ``PhaseWeight`` objects (one Python object per weight), the phases
+    are held in a single contiguous float64 array, so ``cos`` and the
+    matvec are single C-level numpy calls rather than per-element
+    Python loops.
+
+    The math is identical to the object-based path:
+
+    - ``value``   = cos(phase)
+    - ``fitness`` = cos²(phase - π/4)
+
+    Args:
+        phases: numpy array of phase angles (radians), any shape.
+        copy:   if False, the array is used as-is (no defensive copy).
+    """
+
+    def __init__(self, phases, copy: bool = True):
+        _require_numpy()
+        arr = np.asarray(phases, dtype=np.float64)
+        if copy:
+            arr = arr.copy()
+        # Normalize into [0, 2π) exactly like PhaseWeight.__init__.
+        self.phases = np.mod(arr, 2.0 * math.pi)
+
+    # -- constructors -------------------------------------------------- #
+
+    @classmethod
+    def random(cls, rows: int, cols: int, seed=None,
+               center: float = math.pi / 2, spread: float = 0.1):
+        """
+        Random phases near ``center`` (default π/2, i.e. weight ≈ 0).
+
+        This mirrors TPNModel._random_phase_matrix: small initial
+        outputs keep the forward pass numerically stable.
+        """
+        _require_numpy()
+        rng = np.random.default_rng(seed)
+        phases = rng.normal(center, spread, size=(rows, cols))
+        return cls(phases)
+
+    @classmethod
+    def from_weights(cls, weights):
+        """
+        Encode float weights in [-1, 1] as phases (inverse of ``values``).
+
+        Uses acos, matching PhaseEncoding.encode_vector, but applied to
+        the whole array at once. Values are clamped to the valid domain.
+        """
+        _require_numpy()
+        arr = np.clip(np.asarray(weights, dtype=np.float64), -1.0, 1.0)
+        return cls(np.arccos(arr))
+
+    @classmethod
+    def from_phase_objects(cls, matrix: List[List[PhaseWeight]]):
+        """Build a PhaseMatrix from a list-of-lists of PhaseWeight."""
+        _require_numpy()
+        phases = [[w.phase for w in row] for row in matrix]
+        return cls(phases)
+
+    # -- properties ---------------------------------------------------- #
+
+    @property
+    def shape(self):
+        return self.phases.shape
+
+    @property
+    def rows(self) -> int:
+        return int(self.phases.shape[0])
+
+    @property
+    def cols(self) -> int:
+        return int(self.phases.shape[1]) if self.phases.ndim > 1 else 1
+
+    def values(self):
+        """Weight values as a numpy array: cos(phase)."""
+        return np.cos(self.phases)
+
+    def fitness(self):
+        """Fitness values as a numpy array: cos²(phase - π/4)."""
+        return np.cos(self.phases - math.pi / 4.0) ** 2
+
+    # -- computation --------------------------------------------------- #
+
+    def matvec(self, vector):
+        """
+        Matrix-vector product with phase-encoded weights.
+
+        ``out[i] = sum_j cos(phase[i,j]) * v[j]``
+
+        Implemented as a single BLAS call over the cached cos table.
+        """
+        _require_numpy()
+        v = np.asarray(vector, dtype=np.float64)
+        return np.cos(self.phases) @ v
+
+    def matmul(self, matrix):
+        """
+        Matrix-matrix product: apply this weight matrix to a batch of
+        column vectors at once. ``matrix`` is (cols, batch) -> (rows, batch).
+        """
+        _require_numpy()
+        m = np.asarray(matrix, dtype=np.float64)
+        return np.cos(self.phases) @ m
+
+    def to_phase_objects(self) -> List[List[PhaseWeight]]:
+        """Convert back to the object-based representation."""
+        return [[PhaseWeight(float(p)) for p in row] for row in self.phases]
+
+    def tolist(self):
+        """Phase angles as a nested Python list."""
+        return self.phases.tolist()
+
+    def nbytes(self) -> int:
+        """Memory footprint of the phase array in bytes."""
+        return int(self.phases.nbytes)
+
+    def __repr__(self) -> str:
+        return f"PhaseMatrix(shape={self.shape}, dtype={self.phases.dtype})"
